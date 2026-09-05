@@ -11,4 +11,10 @@ powershell -ExecutionPolicy Bypass -File .\RemoteCliAgent.ps1
 
 Server runs on `http://127.0.0.1:8787`
 
-Expose
+## Expose to devtunnel
+
+```powershell
+devtunnel host -p 8787 --allow-anonymous
+```
+
+
