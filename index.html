@@ -26,6 +26,8 @@
     .view-heading { justify-content: space-between; }
     .status, #session { color: #adc0e8; font-size: .8rem; overflow-wrap: anywhere; }
     .status { margin-top: 5px; }
+    .autopilot-control { display: flex; align-items: center; gap: 6px; margin: 0; color: #adc0e8; cursor: pointer; }
+    .autopilot-control input { width: auto; margin: 0; accent-color: #3569c5; }
     .session-list { overflow-y: auto; display: grid; align-content: start; gap: 10px; }
     .session-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 14px; border: 1px solid #2e3e5b; border-radius: 10px; background: #202d45; }
     .session-card code { overflow-wrap: anywhere; color: #d6e3ff; }
@@ -74,6 +76,7 @@
     <section id="chatView" class="view" hidden aria-label="Chat session">
       <div class="chat-toolbar">
         <button id="reload" class="secondary" type="button">Reload</button>
+        <label class="autopilot-control" for="autopilot"><input id="autopilot" type="checkbox">Autopilot</label>
         <span id="session"></span>
       </div>
       <section id="messages" aria-live="polite"></section>
@@ -95,6 +98,7 @@
     const newSession = document.querySelector('#newSession');
     const go = document.querySelector('#go');
     const reload = document.querySelector('#reload');
+    const autopilot = document.querySelector('#autopilot');
     const prompt = document.querySelector('#prompt');
     const messages = document.querySelector('#messages');
     const form = document.querySelector('#chatForm');
@@ -212,7 +216,7 @@
     async function startSession() {
       newSession.disabled = true;
       try {
-        const data = await post('/new-session', { prompt: 'Hi' });
+        const data = await post('/new-session', { prompt: 'Hi', autopilot: autopilot.checked });
         showChat(data.sessionId, data.response, 'Hi');
       } catch (error) {
         listStatus.textContent = error.message;
@@ -226,7 +230,7 @@
       const originalLabel = button.textContent;
       button.textContent = 'Resuming…';
       try {
-        const data = await post('/resume-session', { sessionId: id });
+        const data = await post('/resume-session', { sessionId: id, autopilot: autopilot.checked });
         showChat(data.sessionId, data.response, 'Summarize this session in ~50 words');
       } catch (error) {
         listStatus.textContent = error.message;
@@ -243,7 +247,7 @@
       send.disabled = true;
       const loading = showSpinner();
       try {
-        const data = await post('/chat', { sessionId, prompt: text });
+        const data = await post('/chat', { sessionId, prompt: text, autopilot: autopilot.checked });
         addMessage(data.response || '(No response)', 'assistant');
       } catch (error) {
         addMessage(error.message, 'system');
