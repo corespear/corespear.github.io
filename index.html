@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Remote CLI Chat</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #101622; color: #e8eefc; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    main { width: min(760px, 100%); height: min(820px, calc(100vh - 48px)); background: #182235; border: 1px solid #2e3e5b; border-radius: 16px; overflow: hidden; box-shadow: 0 18px 70px #0007; }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: 1.2rem; }
+    h2 { font-size: 1rem; }
+    label { display: block; font-size: .8rem; color: #adc0e8; margin-bottom: 5px; }
+    input, textarea, button { font: inherit; }
+    input, textarea { width: 100%; color: inherit; background: #0e1522; border: 1px solid #405273; border-radius: 8px; padding: 10px; }
+    button { border: 0; border-radius: 8px; padding: 10px 14px; color: white; background: #3569c5; cursor: pointer; }
+    button.secondary { background: #34435f; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .view { height: 100%; min-height: 0; }
+    .view[hidden] { display: none; }
+    #sessionsView { padding: 18px; display: grid; grid-template-rows: auto auto auto 1fr; gap: 18px; }
+    .url-row, .view-heading, .chat-toolbar { display: flex; gap: 10px; align-items: center; }
+    .url-row input { flex: 1; }
+    .view-heading { justify-content: space-between; }
+    .status, #session { color: #adc0e8; font-size: .8rem; overflow-wrap: anywhere; }
+    .status { margin-top: 5px; }
+    .session-list { overflow-y: auto; display: grid; align-content: start; gap: 10px; }
+    .session-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 14px; border: 1px solid #2e3e5b; border-radius: 10px; background: #202d45; }
+    .session-card code { overflow-wrap: anywhere; color: #d6e3ff; }
+    .session-card span { grid-column: 1; color: #adc0e8; font-size: .8rem; }
+    .session-card button { grid-column: 2; grid-row: 1 / span 2; }
+    .empty { color: #adc0e8; text-align: center; padding: 30px; }
+    #chatView { display: grid; grid-template-rows: auto 1fr auto; }
+    .chat-toolbar { padding: 12px 18px; border-bottom: 1px solid #2e3e5b; }
+    #messages { min-height: 0; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+    .message { max-width: 85%; padding: 11px 13px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .user { align-self: end; background: #315ca8; }
+    .assistant { align-self: start; background: #293750; }
+    .loading { padding: 12px; }
+    .spinner { display: block; width: 18px; height: 18px; border: 3px solid #9eb4df; border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+    .system { align-self: center; max-width: 100%; color: #b8c7e8; background: transparent; font-size: .85rem; text-align: center; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    form { padding: 18px; border-top: 1px solid #2e3e5b; display: grid; gap: 10px; }
+    textarea { min-height: 64px; resize: vertical; }
+    .composer { display: flex; gap: 8px; align-items: stretch; }
+    .composer textarea { flex: 1; }
+    .composer button { align-self: stretch; }
+    @media (max-width: 560px) { body { padding: 0; } main { width: 100%; height: 100vh; border-radius: 0; border: 0; } .session-card { grid-template-columns: 1fr; } .session-card button { grid-column: 1; grid-row: auto; justify-self: start; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section id="sessionsView" class="view" aria-labelledby="sessionsHeading">
+      <h1>Remote CLI Chat</h1>
+      <div class="server-controls">
+        <label for="serverUrl">Server URL</label>
+        <div class="url-row">
+          <input id="serverUrl" type="url" value="http://127.0.0.1:8787" spellcheck="false" required>
+          <button id="go" type="button">Go</button>
+        </div>
+      </div>
+      <div class="view-heading">
+        <div>
+          <h2 id="sessionsHeading">Sessions</h2>
+          <p id="listStatus" class="status">Loading sessions…</p>
+        </div>
+        <button id="newSession" type="button">New session</button>
+      </div>
+      <section id="sessionList" class="session-list" aria-live="polite"></section>
+    </section>
+
+    <section id="chatView" class="view" hidden aria-label="Chat session">
+      <div class="chat-toolbar">
+        <button id="reload" class="secondary" type="button">Reload</button>
+        <span id="session"></span>
+      </div>
+      <section id="messages" aria-live="polite"></section>
+      <form id="chatForm">
+        <label for="prompt">Message</label>
+        <div class="composer">
+          <textarea id="prompt" placeholder="Ask Copilot something…" required></textarea>
+          <button id="send" type="submit">Send</button>
+        </div>
+      </form>
+    </section>
+  </main>
+  <script>
+    const serverUrl = document.querySelector('#serverUrl');
+    const sessionsView = document.querySelector('#sessionsView');
+    const chatView = document.querySelector('#chatView');
+    const sessionList = document.querySelector('#sessionList');
+    const listStatus = document.querySelector('#listStatus');
+    const newSession = document.querySelector('#newSession');
+    const go = document.querySelector('#go');
+    const reload = document.querySelector('#reload');
+    const prompt = document.querySelector('#prompt');
+    const messages = document.querySelector('#messages');
+    const form = document.querySelector('#chatForm');
+    const send = document.querySelector('#send');
+    const session = document.querySelector('#session');
+    const serverUrlStorageKey = 'remote-cli-agent.server-url';
+    const savedServerUrl = localStorage.getItem(serverUrlStorageKey);
+    let sessionId = '';
+
+    if (savedServerUrl) serverUrl.value = savedServerUrl;
+
+    function endpoint(path) {
+      return `${serverUrl.value.trim().replace(/\/$/, '')}${path}`;
+    }
+
+    async function request(path, options = {}) {
+      const response = await fetch(endpoint(path), options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error?.message || `Request failed (${response.status}).`);
+      return data;
+    }
+
+    function post(path, body) {
+      return request(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    }
+
+    function addMessage(text, type) {
+      const message = document.createElement('div');
+      message.className = `message ${type}`;
+      message.textContent = text;
+      messages.append(message);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function showSpinner() {
+      const loading = document.createElement('div');
+      const spinner = document.createElement('span');
+      loading.className = 'message assistant loading';
+      spinner.className = 'spinner';
+      spinner.setAttribute('aria-label', 'Copilot is processing');
+      loading.append(spinner);
+      messages.append(loading);
+      messages.scrollTop = messages.scrollHeight;
+      return loading;
+    }
+
+    function formatDate(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.valueOf()) ? 'Unknown date' : date.toLocaleString();
+    }
+
+    function showChat(id, response, intro) {
+      sessionId = id;
+      sessionsView.hidden = true;
+      chatView.hidden = false;
+      session.textContent = `Session: ${id}`;
+      messages.replaceChildren();
+      if (intro) addMessage(intro, 'user');
+      addMessage(response || '(No response)', 'assistant');
+      prompt.focus();
+    }
+
+    function renderSessions(records) {
+      sessionList.replaceChildren();
+      if (!records.length) {
+        const empty = document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = 'No saved sessions yet.';
+        sessionList.append(empty);
+        return;
+      }
+
+      records
+        .slice()
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .forEach(record => {
+          const card = document.createElement('article');
+          card.className = 'session-card';
+          const id = document.createElement('code');
+          id.textContent = record.sessionId;
+          const created = document.createElement('span');
+          created.textContent = `Created ${formatDate(record.createdAt)}`;
+          const resume = document.createElement('button');
+          resume.type = 'button';
+          resume.textContent = 'Resume';
+          resume.addEventListener('click', () => resumeSession(record.sessionId, resume));
+          card.append(id, created, resume);
+          sessionList.append(card);
+        });
+    }
+
+    async function loadSessions() {
+      const baseUrl = serverUrl.value.trim();
+      if (!baseUrl) return;
+      go.disabled = true;
+      newSession.disabled = true;
+      listStatus.textContent = 'Loading sessions…';
+      sessionList.replaceChildren();
+      try {
+        const data = await request('/sessions');
+        renderSessions(Array.isArray(data.sessions) ? data.sessions : []);
+        listStatus.textContent = 'Choose a session to resume, or start a new one.';
+      } catch (error) {
+        listStatus.textContent = error.message;
+      } finally {
+        go.disabled = false;
+        newSession.disabled = false;
+      }
+    }
+
+    async function startSession() {
+      newSession.disabled = true;
+      try {
+        const data = await post('/new-session', { prompt: 'Hi' });
+        showChat(data.sessionId, data.response, 'Hi');
+      } catch (error) {
+        listStatus.textContent = error.message;
+      } finally {
+        newSession.disabled = false;
+      }
+    }
+
+    async function resumeSession(id, button) {
+      button.disabled = true;
+      const originalLabel = button.textContent;
+      button.textContent = 'Resuming…';
+      try {
+        const data = await post('/resume-session', { sessionId: id });
+        showChat(data.sessionId, data.response, 'Summarize this session in ~50 words');
+      } catch (error) {
+        listStatus.textContent = error.message;
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
+    }
+
+    async function sendPrompt() {
+      const text = prompt.value.trim();
+      if (!text || !sessionId) return;
+      addMessage(text, 'user');
+      prompt.value = '';
+      send.disabled = true;
+      const loading = showSpinner();
+      try {
+        const data = await post('/chat', { sessionId, prompt: text });
+        addMessage(data.response || '(No response)', 'assistant');
+      } catch (error) {
+        addMessage(error.message, 'system');
+      } finally {
+        loading.remove();
+        send.disabled = false;
+        prompt.focus();
+      }
+    }
+
+    go.addEventListener('click', () => {
+      if (!serverUrl.reportValidity()) return;
+      serverUrl.value = serverUrl.value.trim();
+      localStorage.setItem(serverUrlStorageKey, serverUrl.value);
+      loadSessions();
+    });
+    newSession.addEventListener('click', startSession);
+    reload.addEventListener('click', () => window.location.reload());
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      sendPrompt();
+    });
+    prompt.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        form.requestSubmit();
+      }
+    });
+    loadSessions();
+  </script>
+</body>
+</html>
