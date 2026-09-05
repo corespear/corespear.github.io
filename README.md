@@ -1,4 +1,4 @@
-# Remote CLI Agent
+# Remote Copilot CLI Agent
 
 A dependency-free, **loopback-only** HTTP wrapper around the installed `copilot` CLI. It uses `System.Net.HttpListener` and never creates a shell command from request input.
 Make sure to create session.json first
